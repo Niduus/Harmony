@@ -8,8 +8,11 @@
 # Release tags are harmony-v<MAJOR>.<MINOR>.<run number>, from the version in Cargo.toml, so every
 # build is newer than the one before it.
 #
-# Publishing needs the update-signing key: run harmony-keygen once, commit update-key.pub, and
-# add the private key as the Actions secret HARMONY_SIGNING_KEY. Without both, nothing is published.
+# Until the update-signing key is set up (update-key.pub committed and the Actions secret
+# HARMONY_SIGNING_KEY added), each push to main publishes an unsigned TEST build instead:
+# a pre-release tagged harmony-test-<run> with Harmony-Setup.exe and harmony-keygen.exe. Its exe
+# is a local build, and installed copies of Harmony never install a test release, so it can't
+# start an update chain. Once the key exists, releases are signed harmony-v<version> ones.
 name: Release
 
 on:
@@ -53,24 +56,32 @@ jobs:
 
       - name: Check the signing key is set up
         id: key
-        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           HARMONY_SIGNING_KEY: ${{ secrets.HARMONY_SIGNING_KEY }}
         run: |
           $public = (Get-Content update-key.pub -Raw).Trim()
-          if ($public -eq "not-configured" -or -not $env:HARMONY_SIGNING_KEY) {
-            Write-Host "::error::No update-signing key yet. Run harmony-keygen, commit update-key.pub, and add the HARMONY_SIGNING_KEY secret. Nothing was published."
-            exit 1
+          $signed = ("${{ github.event_name }}" -ne "pull_request") -and ($public -ne "not-configured") -and [bool]$env:HARMONY_SIGNING_KEY
+          "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if (-not $signed -and "${{ github.event_name }}" -ne "pull_request") {
+            Write-Host "::warning::No update-signing key yet, so this publishes an unsigned test build. Run harmony-keygen to set the key up."
           }
 
       - name: Build Harmony.exe
         shell: pwsh
         run: |
-          # A PR build is a local build: it never tries to update itself.
-          $tag = if ("${{ github.event_name }}" -eq "pull_request") { "" } else { "${{ steps.version.outputs.tag }}" }
+          # PR and test builds are local builds: they never try to update themselves.
+          $tag = if ("${{ steps.key.outputs.signed }}" -eq "true") { "${{ steps.version.outputs.tag }}" } else { "" }
           powershell -ExecutionPolicy Bypass -File build-exe.ps1 -Tag $tag
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build harmony-keygen.exe
+        if: github.event_name != 'pull_request' && steps.key.outputs.signed != 'true'
+        shell: pwsh
+        run: |
+          cargo build --release --bin harmony-keygen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item target\release\harmony-keygen.exe harmony-keygen.exe
 
       - name: Get the WebView2 installer
         shell: pwsh
@@ -97,7 +108,7 @@ jobs:
           path: Harmony-Setup.exe
 
       - name: Sign the setup
-        if: github.event_name != 'pull_request'
+        if: steps.key.outputs.signed == 'true'
         shell: pwsh
         env:
           HARMONY_SIGNING_KEY: ${{ secrets.HARMONY_SIGNING_KEY }}
@@ -120,7 +131,7 @@ jobs:
           $log | Set-Content -Path notes.md -Encoding utf8
 
       - name: Publish the release
-        if: github.event_name != 'pull_request'
+        if: steps.key.outputs.signed == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -129,3 +140,22 @@ jobs:
           --title "Harmony ${{ steps.version.outputs.version }}"
           --notes-file notes.md
           --target "${{ github.sha }}"
+
+      - name: Publish an unsigned test build
+        if: github.event_name != 'pull_request' && steps.key.outputs.signed != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $intro = @(
+            "**Unsigned test build.** It installs and runs normally, but it never updates itself.",
+            "",
+            "To turn on signed releases and auto-updates once: download harmony-keygen.exe, double-click it, and follow the two steps it shows.",
+            ""
+          )
+          ($intro + (Get-Content notes.md)) | Set-Content -Path notes.md -Encoding utf8
+          gh release create "harmony-test-$env:GITHUB_RUN_NUMBER" Harmony-Setup.exe harmony-keygen.exe `
+            --prerelease `
+            --title "Harmony test build ${{ steps.version.outputs.version }} (unsigned)" `
+            --notes-file notes.md `
+            --target "${{ github.sha }}"
