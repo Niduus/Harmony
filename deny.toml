@@ -1,0 +1,21 @@
+# cargo deny: keeps Harmony's dependencies safe and current. Run in CI by .github/workflows/checks.yml.
+
+[graph]
+# Harmony ships for Windows only. (On Linux, Tauri's GTK stack and the keyring's D-Bus crates
+# still pull in a few unmaintained crates; they never reach the Windows build.)
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+# Security advisories, and crates whose maintainers have abandoned them, fail the check.
+unmaintained = "all"
+yanked = "deny"
+ignore = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -460,12 +460,74 @@ function updatesCard() {
   return card('Updates', body + actions + toggles, 'signed GitHub Releases');
 }
 
+const PROFILES = [
+  ['potato', 'Potato', 'Least memory and CPU: images on click, no animation.'],
+  ['balanced', 'Balanced', 'Comfortable everyday use.'],
+  ['enthusiast', 'Enthusiast', 'Everything on, more history kept.'],
+];
+
+const choice = (key, value, options) => `<select class="field small perf-pick" data-perf="${key}">${options.map(([v, label]) => `<option value="${v}"${String(v) === String(value) ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+const later = '<span class="chip soon">coming soon</span>';
+const mb = bytes => `${Math.round((bytes || 0) / 1048576)} MB`;
+
+function meterLine() {
+  const u = S.memory;
+  if (!u) return 'Measuring…';
+  if (!u.processes) return 'This system doesn\'t report memory per process.';
+  return `<b>${mb(u.total_bytes)}</b> in use: core ${mb(u.core_bytes)}, window ${mb(u.window_bytes)} (${u.processes} processes)`;
+}
+
+function perfCard() {
+  const s = S.settings || {};
+  const p = s.perf || {};
+  const current = s.profile || 'balanced';
+  const picker = `<div class="seg perf-profiles">${PROFILES.map(([id, label]) => `<button class="${current === id ? 'on' : ''}" data-do="profile" data-profile="${id}" title="${esc(PROFILES.find(x => x[0] === id)[2])}">${label}</button>`).join('')}</div>`;
+  const rows = [
+    setting('Animations', 'Transitions and motion in the interface.', choice('motion', p.motion, [['off', 'Off'], ['short', 'Short'], ['full', 'Full']])),
+    setting(`Messages kept per channel ${later}`, 'More history in memory means less waiting when you scroll back.', choice('messages_per_channel', p.messages_per_channel, [[100, '100'], [200, '200'], [300, '300']])),
+    setting(`Channels kept after you leave ${later}`, 'Channels you switch back to open instantly.', choice('channels_kept', p.channels_kept, [[2, '2'], [5, '5'], [10, '10'], [20, '20'], [30, '30']])),
+    setting(`Images and avatars ${later}`, '', choice('images', p.images, [['click', 'Load on click'], ['visible', 'Load when visible'], ['prefetch', 'Load nearby too']])),
+    setting(`GIFs and animated emoji ${later}`, '', choice('animate', p.animate, [['hover', 'Move on hover'], ['visible', 'Move when visible'], ['always', 'Always move']])),
+    setting(`Embeds and link previews ${later}`, '', sw(Boolean(p.embeds), 'data-do="perf-toggle" data-key="embeds"')),
+    setting(`While minimised ${later}`, '', choice('idle', p.idle, [['stop', 'Stop drawing'], ['throttle', 'Slow down']])),
+  ].join('');
+  const head = `<div class="row" style="align-items:center;gap:12px;flex-wrap:wrap">${picker}${current === 'custom' ? '<span class="chip">Custom</span>' : ''}</div>
+    <p class="note" style="margin-top:8px">${esc((PROFILES.find(x => x[0] === current) || ['', '', 'You changed a setting, so this is your own mix.'])[2])}</p>
+    <p class="note perf-meter" style="margin-top:8px">${meterLine()}</p>`;
+  return card('Performance', head + rows, 'profiles and memory');
+}
+
+/** Refresh the memory meter every 2 s while Settings is on screen. */
+let meterTimer = 0;
+function watchMemory(on) {
+  if (!on) {
+    clearInterval(meterTimer);
+    meterTimer = 0;
+    return;
+  }
+  if (meterTimer) return;
+  const tick = async () => {
+    if (S.view.place !== 'settings' || document.hidden) return watchMemory(false);
+    S.memory = await invoke('perf_usage').catch(() => null);
+    const el = document.querySelector('.perf-meter');
+    if (el) el.innerHTML = meterLine();
+  };
+  tick();
+  meterTimer = setInterval(tick, 2000);
+}
+
+/** Settings the window applies itself. */
+function applyPerf() {
+  document.documentElement.dataset.motion = S.settings?.perf?.motion || 'short';
+}
+
 function drawSettings() {
   setHtml(topbarEl, topbar({ ico: 'gear', title: 'Settings' }));
   const me = S.overview?.bot || {};
   showPage('settings', `<h1>Settings</h1><p class="lead">Everything saves as soon as you change it.</p>
     ${card('Account', `<div class="row" style="gap:12px;align-items:center">${avatar(me.avatar, me.name || 'You', 's40')}<div style="flex:1"><div class="big" style="font-size:16px">${esc(me.name || 'You')}</div><p class="note">${esc(me.tag || '')}</p></div>${btn('Sign out', 'data-do="logout"', 'red')}</div>
       <p class="note" style="margin-top:12px">Signing out removes your token from this PC's keychain.</p>`)}
+    ${perfCard()}
     ${updatesCard()}
     ${card('Account safety', `<ul class="note" style="margin:0;padding-left:18px">
       <li>Harmony only does what you click or type. It never sends anything on its own.</li>
@@ -475,6 +537,7 @@ function drawSettings() {
       <li>Reactions, replies, edits, uploads and typing indicators each arrive in a later phase with their own limits.</li>
     </ul>`)}
     ${card('About', `<p class="note">Harmony ${esc(S.init?.displayVersion || '')}. Not affiliated with Discord.</p>`)}`);
+  watchMemory(true);
 }
 
 // ================================================================== loading data
@@ -563,9 +626,11 @@ const goGuild = id => go(S.lastInGuild[id] || { place: 'guild', guildId: id });
 
 function saveSettings(changes) {
   S.settings = { ...S.settings, ...changes };
+  applyPerf();
   draw();
   invoke('settings_set', { settings: S.settings }).then(saved => {
     S.settings = saved;
+    applyPerf();
     scheduleUpdates();
     draw();
   }).catch(error => toast(String(error), 'err'));
@@ -585,6 +650,8 @@ const ACTIONS = {
   logout: () => signOut(),
   copy: el => copy(el.dataset.text),
   setting: el => saveSettings({ [el.dataset.key]: !S.settings[el.dataset.key] }),
+  profile: el => saveSettings({ profile: el.dataset.profile }),
+  'perf-toggle': el => saveSettings({ perf: { ...S.settings.perf, [el.dataset.key]: !S.settings.perf?.[el.dataset.key] } }),
   'release-check': () => checkRelease(true),
   'release-install': () => installRelease(),
   'guild-menu': el => guildMenu(el.closest('.side-head') || el),
@@ -632,6 +699,14 @@ document.addEventListener('click', event => {
   if (ch) return go({ place: 'guild', guildId: S.view.guildId, channelId: ch.dataset.ch });
   const dm = t.closest('[data-dm]');
   if (dm) return go({ place: 'dms', userId: dm.dataset.dm });
+});
+
+document.addEventListener('change', event => {
+  const key = event.target.dataset?.perf;
+  if (!key) return;
+  const raw = event.target.value;
+  const value = /^\d+$/.test(raw) ? Number(raw) : raw;
+  saveSettings({ perf: { ...S.settings.perf, [key]: value } });
 });
 
 document.addEventListener('input', event => {
@@ -812,6 +887,7 @@ async function start() {
   S.init = init;
   S.signedIn = Boolean(init.signedIn);
   S.settings = init.settings || {};
+  applyPerf();
   S.status = init.status || S.status;
   S.release = init.release || {};
   if (S.view.place !== 'guild' && S.view.place !== 'dms' && S.view.place !== 'settings') S.view = { place: 'dms' };

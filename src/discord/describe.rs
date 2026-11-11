@@ -6,7 +6,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::store::{sf, snowflake, snowflake_ms, text, Id, Store, User};
+use crate::state::{sf, snowflake, snowflake_ms, text, Id, Store, User};
 
 /// Message types that read like ordinary chat: default, reply, slash command, context menu.
 const NORMAL_TYPES: [u64; 4] = [0, 19, 20, 23];

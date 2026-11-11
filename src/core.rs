@@ -12,12 +12,12 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-use crate::describe;
-use crate::gateway::{self, Sink};
-use crate::rest::{Rest, RestError};
+use crate::discord::describe;
+use crate::discord::gateway::{self, Sink};
+use crate::discord::rest::{Rest, RestError};
 use crate::safety::{self, Window};
-use crate::store::{sf, snowflake_ms, History, Id, Store};
-use crate::token::Token;
+use crate::state::{sf, snowflake_ms, History, Id, Store};
+use crate::auth::token::Token;
 
 pub struct Core {
     handle: AppHandle,
@@ -324,7 +324,7 @@ impl Core {
         let Some(mut event) = self.chat_target(&store, channel_id, sf(d, "guild_id")) else { return };
         let nick = d.pointer("/member/nick").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_owned);
         let name = nick
-            .or_else(|| d.pointer("/member/user").and_then(crate::store::User::parse).map(|u| u.name()))
+            .or_else(|| d.pointer("/member/user").and_then(crate::state::User::parse).map(|u| u.name()))
             .unwrap_or_else(|| store.user(user_id).name());
         event["type"] = json!("typing");
         event["authorId"] = json!(user_id.to_string());
@@ -366,8 +366,8 @@ impl Sink for Core {
                 if kind == "GUILD_UPDATE" {
                     // Updates carry no channels: keep the ones Harmony has.
                     if let Some(id) = sf(d, "id") {
-                        if let (Some(old), Some(new)) = (store.guilds.get(&id).cloned(), crate::store::Guild::parse(d)) {
-                            store.guilds.insert(id, crate::store::Guild { channels: old.channels, ..new });
+                        if let (Some(old), Some(new)) = (store.guilds.get(&id).cloned(), crate::state::Guild::parse(d)) {
+                            store.guilds.insert(id, crate::state::Guild { channels: old.channels, ..new });
                         }
                     }
                 } else {

@@ -1,7 +1,7 @@
 //! Signs a release file in CI:  harmony-sign <file> <tag>   (key in HARMONY_SIGNING_KEY)
 //! Writes <file>.sig next to it.
 
-#[path = "../signing.rs"]
+#[path = "../updates/signing.rs"]
 mod signing;
 
 fn main() {

@@ -631,3 +631,11 @@ iframe.embed-player { display: block; border: 0; border-radius: 8px; background:
 .btn.wide { width: 100%; justify-content: center; }
 .login-or { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
 .login-or::before, .login-or::after { content: ""; flex: 1; height: 1px; background: var(--line-strong); }
+
+/* ---------------------------------------------------------------- performance */
+.perf-pick { width: 190px; flex: none; }
+.chip.soon { margin-left: 6px; font-size: 10.5px; font-weight: 600; vertical-align: 1px; }
+.perf-meter b { color: var(--text-strong); }
+/* Animations setting (Settings > Performance) */
+[data-motion="off"] *, [data-motion="off"] *::before, [data-motion="off"] *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+[data-motion="short"] *, [data-motion="short"] *::before, [data-motion="short"] *::after { transition-duration: .12s !important; }

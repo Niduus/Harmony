@@ -4,19 +4,17 @@
 //! sees your token and never talks to Discord directly: it calls the commands below, and
 //! `core.rs` does the work through the safety limits in `safety.rs`.
 //!
-//! Read SAFETY.md before changing safety.rs, rest.rs, gateway.rs, token.rs or core.rs.
+//! Read SAFETY.md before changing safety.rs, core.rs, or anything in auth/, discord/ or updates/.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auth;
 mod core;
-mod describe;
-mod gateway;
-mod login_window;
-mod rest;
+mod discord;
+mod perf;
 mod safety;
-mod signing;
-mod store;
-mod token;
+mod settings;
+mod state;
 mod updates;
 
 use std::path::PathBuf;
@@ -24,25 +22,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, Webview};
 
 use crate::core::Core;
-use crate::token::Token;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-struct Settings {
-    auto_check_updates: bool,
-    auto_install_updates: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings { auto_check_updates: true, auto_install_updates: false }
-    }
-}
+use crate::settings::Settings;
+use crate::auth::token::{self, Token};
 
 struct App {
     core: Arc<Core>,
@@ -123,14 +108,14 @@ fn sign_in(app: &App, token: Token) -> Value {
     }
 }
 
-/// Sign in on Discord's own login page, in a separate private window. See login_window.rs.
+/// Sign in on Discord's own login page, in a separate private window. See auth/login_window.rs.
 #[tauri::command]
 fn login_discord(app: Shared<'_>, webview: Webview, handle: AppHandle) -> Value {
     if let Err(denied) = from_main(&webview) {
         return denied;
     }
     let app = app.inner().clone();
-    let opened = login_window::open(&handle, move |handle, token| {
+    let opened = auth::login_window::open(&handle, move |handle, token| {
         let result = sign_in(&app, token);
         let _ = handle.emit_to("main", "signed-in", &result);
     });
@@ -172,13 +157,20 @@ fn open_url(url: String) -> Value {
 
 #[tauri::command]
 fn settings_set(app: Shared<'_>, settings: Value) -> Value {
-    let parsed: Settings = serde_json::from_value(settings).unwrap_or_default();
-    if let Some(dir) = app.settings_path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(&app.settings_path, serde_json::to_string_pretty(&parsed).unwrap_or_default());
-    *app.settings.lock().unwrap() = parsed.clone();
-    json!(parsed)
+    let Ok(sent) = serde_json::from_value::<Settings>(settings) else {
+        return json!(*app.settings.lock().unwrap());
+    };
+    let mut current = app.settings.lock().unwrap();
+    let next = current.merged(sent);
+    next.save(&app.settings_path);
+    *current = next.clone();
+    json!(next)
+}
+
+/// The memory meter (Settings > Performance).
+#[tauri::command]
+fn perf_usage() -> Value {
+    json!(perf::memory::usage())
 }
 
 #[tauri::command]
@@ -255,11 +247,11 @@ fn main() {
     let updated = std::env::args().any(|a| a == "--updated");
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![init, window_ready, login, login_discord, logout, api, open_url, settings_set, release_check, release_install])
+        .invoke_handler(tauri::generate_handler![init, window_ready, login, login_discord, logout, api, open_url, settings_set, perf_usage, release_check, release_install])
         .setup(move |tauri_app| {
             let handle = tauri_app.handle().clone();
-            let settings_path = handle.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".")).join("settings.json");
-            let settings: Settings = std::fs::read_to_string(&settings_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            let settings_path = settings::path(handle.path().app_config_dir().ok());
+            let settings = Settings::load(&settings_path);
             let installed = updates::installed_version();
             let app = Arc::new(App {
                 core: Core::new(handle.clone()),
