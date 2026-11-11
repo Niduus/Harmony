@@ -282,6 +282,8 @@ mod tests {
     fn versions() {
         assert_eq!(parse_version("harmony-v0.2.14"), Some(vec![0, 2, 14]));
         assert_eq!(parse_version("panel-v1.0.0"), None);
+        // Unsigned test builds must never look like an update.
+        assert_eq!(parse_version("harmony-test-12"), None);
         assert!(is_newer("harmony-v0.3.1", "harmony-v0.2.30"));
         assert!(!is_newer("harmony-v0.2.3", "harmony-v0.2.30"));
         assert!(is_newer("harmony-v0.2.1", "local"));

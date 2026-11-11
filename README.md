@@ -20,7 +20,7 @@ its own safety limits. Voice comes last.
 
 ## Install
 
-Download `Harmony-Setup.exe` from the newest `harmony-v…` release and run it. It installs for
+Download `Harmony-Setup.exe` from the newest release (a `harmony-v…` release, or a `harmony-test-…` test build until signing is set up) and run it. It installs for
 your Windows user only (no admin) into `%LOCALAPPDATA%\Programs\Harmony`, and adds the Microsoft
 WebView2 runtime if your PC doesn't have it.
 
@@ -55,16 +55,22 @@ more. The token and message text are never logged.
 
 ## Releases and the update key (one-time setup)
 
-Every push to `main` builds, signs and publishes a release (`.github/workflows/release.yml`).
-Before the first one, make the signing key once:
+Every push to `main` builds and publishes Harmony (`.github/workflows/release.yml`).
 
-1. `cargo run --release --bin harmony-keygen`
-2. Commit the `update-key.pub` it wrote.
-3. Add the private key it printed as the repo's Actions secret **HARMONY_SIGNING_KEY**
-   (Settings > Secrets and variables > Actions). Keep no other copy you don't need: anyone with
-   it can sign updates.
+Until the update-signing key exists, each build is an **unsigned test build**: a pre-release
+named `harmony-test-<n>` with `Harmony-Setup.exe` and `harmony-keygen.exe`. It installs and runs
+normally but never updates itself, and Harmony never installs a test build as an update.
 
-Until both exist, the workflow refuses to publish anything.
+To turn on signed releases and auto-updates, once:
+
+1. Download `harmony-keygen.exe` from the newest test build and double-click it (or run
+   `cargo run --release --bin harmony-keygen`).
+2. Add the **private** key it shows as the Actions secret **HARMONY_SIGNING_KEY**
+   ([New secret](https://github.com/Niduus/Harmony/settings/secrets/actions/new)). Paste it
+   nowhere else: anyone with it can sign updates.
+3. Commit the **public** key it shows as `update-key.pub` (or send it to Claude to commit).
+
+From then on every build is a signed `harmony-v<version>` release that installed copies update to.
 
 ## Layout
 

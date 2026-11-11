@@ -1,8 +1,9 @@
-//! Makes Harmony's update-signing key. Run once:  cargo run --release --bin harmony-keygen
+//! Makes Harmony's update-signing key. Run it once: double-click harmony-keygen.exe (from the
+//! test release), or `cargo run --release --bin harmony-keygen`.
 //!
-//! It writes the public key to update-key.pub (commit that file) and prints the private key
-//! once. Put the private key in the repo's GitHub Actions secrets as HARMONY_SIGNING_KEY and
-//! keep no other copy you don't need. Anyone with it can sign updates.
+//! It shows the public key (commit it as update-key.pub; it also writes that file) and the
+//! private key, once. The private key goes into the repo's GitHub Actions secret
+//! HARMONY_SIGNING_KEY and nowhere else: anyone with it can sign updates.
 
 #[path = "../updates/signing.rs"]
 mod signing;
@@ -12,8 +13,15 @@ fn main() {
     getrandom::getrandom(&mut seed).expect("no system randomness");
     let key = ed25519_dalek::SigningKey::from_bytes(&seed);
     let public = signing::hex(key.verifying_key().as_bytes());
-    std::fs::write("update-key.pub", format!("{public}\n")).expect("could not write update-key.pub");
-    println!("Wrote update-key.pub. Commit it.\n");
-    println!("Private key (add it as the GitHub Actions secret HARMONY_SIGNING_KEY, then close this window):\n");
-    println!("{}", signing::hex(&seed));
+    let _ = std::fs::write("update-key.pub", format!("{public}\n"));
+    println!("Harmony update-signing key\n");
+    println!("1. Open https://github.com/Niduus/Harmony/settings/secrets/actions/new");
+    println!("   Name: HARMONY_SIGNING_KEY");
+    println!("   Secret (the PRIVATE key, shown only this once; paste it nowhere else):\n");
+    println!("   {}\n", signing::hex(&seed));
+    println!("2. Send this PUBLIC key to Claude (safe to share), or commit it as update-key.pub:\n");
+    println!("   {public}\n");
+    println!("Running this again makes a different key, so finish both steps with this one.");
+    println!("Press Enter to close. The private key disappears with this window.");
+    let _ = std::io::stdin().read_line(&mut String::new());
 }
