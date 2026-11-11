@@ -110,19 +110,21 @@ fn sign_in(app: &App, token: Token) -> Value {
 
 /// Sign in on Discord's own login page, in a separate private window. See auth/login_window.rs.
 #[tauri::command]
-fn login_discord(app: Shared<'_>, webview: Webview, handle: AppHandle) -> Value {
+// Async on purpose: on Windows, creating a window from a synchronous command deadlocks
+// WebView2 and the new window stays blank (see WebviewWindowBuilder::new).
+async fn login_discord(app: Shared<'_>, webview: Webview, handle: AppHandle) -> Result<Value, String> {
     if let Err(denied) = from_main(&webview) {
-        return denied;
+        return Ok(denied);
     }
     let app = app.inner().clone();
     let opened = auth::login_window::open(&handle, move |handle, token| {
         let result = sign_in(&app, token);
         let _ = handle.emit_to("main", "signed-in", &result);
     });
-    match opened {
+    Ok(match opened {
         Ok(()) => json!({ "ok": true }),
         Err(e) => json!({ "ok": false, "message": e }),
-    }
+    })
 }
 
 /// Sign out: disconnect and delete the token from the keychain.
