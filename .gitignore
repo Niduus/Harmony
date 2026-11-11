@@ -3,3 +3,5 @@
 .env
 *token*
 !src/token.rs
+/build
+/gen/schemas

@@ -17,13 +17,20 @@ use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::backend::{Emitter, Event};
-use crate::model;
 use crate::safety::{self, Window};
 use crate::token::Token;
 
 const GATEWAY: &str = "wss://gateway.discord.gg";
 const QUERY: &str = "/?v=10&encoding=json";
+
+/// Where the gateway reports to. `core::Core` implements it.
+pub trait Sink: Send + Sync {
+    /// Connection state for the UI: "connecting", "online", "reconnecting" or "offline".
+    fn status(&self, state: &str, text: &str);
+    fn error(&self, text: String);
+    fn auth_failed(&self);
+    fn dispatch(&self, kind: &str, d: &Value);
+}
 
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -50,7 +57,7 @@ pub fn jitter() -> f64 {
     (n % 1000) as f64 / 1000.0
 }
 
-pub async fn run(token: Token, emit: Emitter) {
+pub async fn run(token: Token, emit: std::sync::Arc<dyn Sink>) {
     let mut session: Option<Session> = None;
     let mut identifies = Window::new(safety::IDENTIFY_MAX_PER_HOUR, Duration::from_secs(3600));
     let mut failures: u32 = 0;
@@ -58,10 +65,10 @@ pub async fn run(token: Token, emit: Emitter) {
     loop {
         let base = session.as_ref().map_or(GATEWAY, |s| s.resume_url.as_str());
         let url = format!("{}{QUERY}", base.trim_end_matches('/'));
-        emit.send(Event::Status(if session.is_some() { "Resuming…".into() } else { "Connecting…".into() }));
+        emit.status("connecting", if session.is_some() { "Resuming…" } else { "Connecting…" });
 
         let outcome = match tokio_tungstenite::connect_async(url.as_str()).await {
-            Ok((ws, _)) => connection(ws, &token, &mut session, &mut identifies, &emit).await,
+            Ok((ws, _)) => connection(ws, &token, &mut session, &mut identifies, emit.as_ref()).await,
             Err(e) => {
                 tracing::warn!("gateway connect failed: {e}");
                 Outcome::Reconnect { resume: true, was_ready: false }
@@ -70,12 +77,12 @@ pub async fn run(token: Token, emit: Emitter) {
 
         match outcome {
             Outcome::AuthFailed => {
-                emit.send(Event::AuthFailed);
+                emit.auth_failed();
                 return;
             }
             Outcome::Fatal(msg) => {
-                emit.send(Event::Error(msg));
-                emit.send(Event::Status("Disconnected".into()));
+                emit.error(msg);
+                emit.status("offline", "Disconnected");
                 return;
             }
             Outcome::Reconnect { resume, was_ready } => {
@@ -84,14 +91,12 @@ pub async fn run(token: Token, emit: Emitter) {
                 }
                 failures = if was_ready { 0 } else { failures + 1 };
                 if failures >= safety::MAX_RECONNECT_ATTEMPTS {
-                    emit.send(Event::Error(
-                        "Could not stay connected to Discord. Stopped retrying to protect the account; restart the client to try again.".into(),
-                    ));
-                    emit.send(Event::Status("Disconnected".into()));
+                    emit.error("Could not stay connected to Discord. Stopped retrying to protect the account; restart Harmony to try again.".into());
+                    emit.status("offline", "Disconnected");
                     return;
                 }
                 let backoff = (2f64.powi(failures as i32)).min(60.0) * (0.5 + jitter());
-                emit.send(Event::Status(format!("Reconnecting in {backoff:.0}s…")));
+                emit.status("reconnecting", &format!("Reconnecting in {backoff:.0}s…"));
                 tokio::time::sleep(Duration::from_secs_f64(backoff.max(1.0))).await;
             }
         }
@@ -107,7 +112,7 @@ async fn connection(
     token: &Token,
     session: &mut Option<Session>,
     identifies: &mut Window,
-    emit: &Emitter,
+    emit: &dyn Sink,
 ) -> Outcome {
     let reconnect = |was_ready| Outcome::Reconnect { resume: true, was_ready };
 
@@ -140,7 +145,7 @@ async fn connection(
         send_json(&mut ws, json!({"op": 2, "d": {
             "token": token.expose(),
             // Honest client properties: this does not impersonate the official client.
-            "properties": {"os": std::env::consts::OS, "browser": "rdc", "device": "rdc"},
+            "properties": {"os": std::env::consts::OS, "browser": "Harmony", "device": "Harmony"},
             "presence": {"status": "online", "since": 0, "activities": [], "afk": false},
             "compress": false
         }}))
@@ -205,7 +210,10 @@ async fn connection(
                         } else if t == "RESUMED" {
                             was_ready = true;
                         }
-                        dispatch(t, &v["d"], emit);
+                        if t == "READY" || t == "RESUMED" {
+                            emit.status("online", "Connected");
+                        }
+                        emit.dispatch(t, &v["d"]);
                     }
                     Some(1) => {
                         let seq = session.as_ref().and_then(|s| s.seq);
@@ -245,62 +253,5 @@ fn close_outcome(code: u16, was_ready: bool) -> Outcome {
         4008 => Outcome::Reconnect { resume: true, was_ready: false },
         c if c == u16::from(CloseCode::Normal) => Outcome::Reconnect { resume: false, was_ready },
         _ => Outcome::Reconnect { resume: true, was_ready },
-    }
-}
-
-fn dispatch(t: &str, d: &Value, emit: &Emitter) {
-    match t {
-        "READY" => {
-            let user = model::parse_user(&d["user"]);
-            let guilds = d["guilds"].as_array().map(|a| a.iter().filter_map(model::parse_guild).collect()).unwrap_or_default();
-            let dms = d["private_channels"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|c| model::parse_channel(c, None)).collect())
-                .unwrap_or_default();
-            emit.send(Event::Ready { user, guilds, dms });
-            emit.send(Event::Status("Connected".into()));
-        }
-        "RESUMED" => emit.send(Event::Status("Connected".into())),
-        "GUILD_CREATE" => {
-            if let Some(g) = model::parse_guild(d) {
-                emit.send(Event::GuildUpsert(g));
-            }
-        }
-        "GUILD_DELETE" => {
-            if let Some(id) = d.get("id").and_then(model::snowflake) {
-                emit.send(Event::GuildDelete(id));
-            }
-        }
-        "CHANNEL_CREATE" | "CHANNEL_UPDATE" => {
-            if let Some(c) = model::parse_channel(d, None) {
-                emit.send(Event::ChannelUpsert(c));
-            }
-        }
-        "CHANNEL_DELETE" => {
-            if let Some(id) = d.get("id").and_then(model::snowflake) {
-                emit.send(Event::ChannelDelete(id));
-            }
-        }
-        "MESSAGE_CREATE" => {
-            if let Some(m) = model::parse_message(d) {
-                emit.send(Event::MessageUpsert(m));
-            }
-        }
-        "MESSAGE_UPDATE" => {
-            // Partial updates (e.g. embeds resolving) may lack content; only apply real edits.
-            if let (Some(id), Some(ch), Some(content)) = (
-                d.get("id").and_then(model::snowflake),
-                d.get("channel_id").and_then(model::snowflake),
-                d.get("content").and_then(Value::as_str),
-            ) {
-                emit.send(Event::MessageEdit { id, channel_id: ch, content: content.to_owned() });
-            }
-        }
-        "MESSAGE_DELETE" => {
-            if let (Some(id), Some(ch)) = (d.get("id").and_then(model::snowflake), d.get("channel_id").and_then(model::snowflake)) {
-                emit.send(Event::MessageDelete { id, channel_id: ch });
-            }
-        }
-        _ => {}
     }
 }

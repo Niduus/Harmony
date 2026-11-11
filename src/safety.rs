@@ -14,10 +14,14 @@ pub const SEND_MAX_IN_WINDOW: usize = 5;
 pub const SEND_WINDOW: Duration = Duration::from_secs(5);
 /// Discord's own message length limit for non-Nitro accounts.
 pub const MAX_MESSAGE_LEN: usize = 2000;
-/// Messages fetched when a channel is opened. One page, never paginated in bulk.
+/// Messages per history page. The first page of a channel is fetched once per session, when
+/// you open it; older pages only when you scroll up.
 pub const HISTORY_PAGE: u32 = 50;
+/// Older-history pages (scrolling up) allowed per window, across all channels.
+pub const OLDER_PAGES_IN_WINDOW: usize = 8;
+pub const OLDER_PAGES_WINDOW: Duration = Duration::from_secs(30);
 /// Messages kept per channel in memory.
-pub const MAX_CACHED_PER_CHANNEL: usize = 500;
+pub const MAX_CACHED_PER_CHANNEL: usize = 300;
 
 /// If REST gets this many 401/403/429 responses in `INVALID_WINDOW`, all REST
 /// traffic stops until restart. Discord temporarily bans IPs at 10,000/10 min;

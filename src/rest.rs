@@ -13,7 +13,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::model::{self, Id, Message};
+use crate::store::Id;
 use crate::safety::{self, Window};
 use crate::token::Token;
 
@@ -75,7 +75,7 @@ impl Rest {
         auth.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth);
         // Honest identification. This client does not pretend to be the official one.
-        headers.insert(USER_AGENT, HeaderValue::from_static(concat!("rdc/", env!("CARGO_PKG_VERSION"))));
+        headers.insert(USER_AGENT, HeaderValue::from_static(concat!("Harmony/", env!("CARGO_PKG_VERSION"))));
         let http = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(Duration::from_secs(20))
@@ -194,21 +194,21 @@ impl Rest {
         Err(RestError::RateLimited)
     }
 
-    /// One page of recent history, oldest first.
-    pub async fn recent_messages(&self, channel: Id) -> Result<Vec<Message>, RestError> {
-        let path = format!("/channels/{channel}/messages?limit={}", safety::HISTORY_PAGE);
+    /// One page of history (newest first, as Discord sends it), optionally before a message.
+    pub async fn messages(&self, channel: Id, before: Option<Id>) -> Result<Vec<Value>, RestError> {
+        let mut path = format!("/channels/{channel}/messages?limit={}", safety::HISTORY_PAGE);
+        if let Some(b) = before {
+            path.push_str(&format!("&before={b}"));
+        }
         let key = format!("GET /channels/{channel}/messages");
         let v = self.request(Method::GET, &path, &key, None).await?;
-        let mut msgs: Vec<Message> = v.as_array().map(|a| a.iter().filter_map(model::parse_message).collect()).unwrap_or_default();
-        msgs.reverse();
-        Ok(msgs)
+        Ok(v.as_array().cloned().unwrap_or_default())
     }
 
-    pub async fn send_message(&self, channel: Id, content: &str, nonce: &str) -> Result<Message, RestError> {
+    pub async fn send_message(&self, channel: Id, content: &str, nonce: &str) -> Result<Value, RestError> {
         let path = format!("/channels/{channel}/messages");
         let key = format!("POST /channels/{channel}/messages");
         let body = json!({ "content": content, "nonce": nonce, "enforce_nonce": true });
-        let v = self.request(Method::POST, &path, &key, Some(body)).await?;
-        model::parse_message(&v).ok_or(RestError::Status(0))
+        self.request(Method::POST, &path, &key, Some(body)).await
     }
 }

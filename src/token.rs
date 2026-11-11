@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-const KEYRING_SERVICE: &str = "rdc-discord-client";
+const KEYRING_SERVICE: &str = "harmony-discord-client";
 const KEYRING_USER: &str = "account-token";
 
 /// An account token. `Debug` and `Display` are redacted so it cannot end up

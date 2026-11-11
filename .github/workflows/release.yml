@@ -1,0 +1,131 @@
+# Builds Harmony.exe and Harmony-Setup.exe on Windows, signs the setup, and publishes them as a
+# GitHub release. Installed copies of Harmony find that release and install it (see src/updates.rs).
+#
+# Runs on every push to main that changes code (docs-only pushes are skipped), and by hand from
+# the Actions tab. Pull requests build and test, and upload the setup as an artifact, but never
+# publish a release.
+#
+# Release tags are harmony-v<MAJOR>.<MINOR>.<run number>, from the version in Cargo.toml, so every
+# build is newer than the one before it.
+#
+# Publishing needs the update-signing key: run harmony-keygen once, commit update-key.pub, and
+# add the private key as the Actions secret HARMONY_SIGNING_KEY. Without both, nothing is published.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Pick the release tag
+        id: version
+        shell: pwsh
+        run: |
+          $match = Select-String -Path Cargo.toml -Pattern '^version = "([0-9]+)\.([0-9]+)\.[0-9]+"' | Select-Object -First 1
+          if (-not $match) { throw "version not found in Cargo.toml" }
+          $base = "$($match.Matches[0].Groups[1].Value).$($match.Matches[0].Groups[2].Value)"
+          $version = "$base.$env:GITHUB_RUN_NUMBER"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=harmony-v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check the signing key is set up
+        id: key
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          HARMONY_SIGNING_KEY: ${{ secrets.HARMONY_SIGNING_KEY }}
+        run: |
+          $public = (Get-Content update-key.pub -Raw).Trim()
+          if ($public -eq "not-configured" -or -not $env:HARMONY_SIGNING_KEY) {
+            Write-Host "::error::No update-signing key yet. Run harmony-keygen, commit update-key.pub, and add the HARMONY_SIGNING_KEY secret. Nothing was published."
+            exit 1
+          }
+
+      - name: Build Harmony.exe
+        shell: pwsh
+        run: |
+          # A PR build is a local build: it never tries to update itself.
+          $tag = if ("${{ github.event_name }}" -eq "pull_request") { "" } else { "${{ steps.version.outputs.tag }}" }
+          powershell -ExecutionPolicy Bypass -File build-exe.ps1 -Tag $tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Get the WebView2 installer
+        shell: pwsh
+        run: |
+          # Run by the setup only on PCs that don't have the runtime yet.
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile build\MicrosoftEdgeWebview2Setup.exe
+
+      - name: Build Harmony-Setup.exe
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc /Qp "/DMyVersion=${{ steps.version.outputs.version }}" installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item build\installer\Harmony-Setup.exe Harmony-Setup.exe
+
+      - name: Upload the PR build
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Harmony-Setup
+          path: Harmony-Setup.exe
+
+      - name: Sign the setup
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          HARMONY_SIGNING_KEY: ${{ secrets.HARMONY_SIGNING_KEY }}
+        run: |
+          # harmony-sign refuses to write a signature that doesn't verify against update-key.pub.
+          cargo run --release --quiet --bin harmony-sign -- Harmony-Setup.exe "${{ steps.version.outputs.tag }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Write release notes
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $previous = git describe --tags --match "harmony-v*" --abbrev=0 2>$null
+          if ($LASTEXITCODE -eq 0 -and $previous) {
+            $log = git log "$previous..HEAD" --format="- %s"
+          } else {
+            $log = git log -n 15 --format="- %s"
+          }
+          if (-not $log) { $log = "- Rebuilt Harmony." }
+          $log | Set-Content -Path notes.md -Encoding utf8
+
+      - name: Publish the release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${{ steps.version.outputs.tag }}" Harmony-Setup.exe Harmony-Setup.exe.sig
+          --title "Harmony ${{ steps.version.outputs.version }}"
+          --notes-file notes.md
+          --target "${{ github.sha }}"
