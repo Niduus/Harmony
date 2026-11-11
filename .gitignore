@@ -1,0 +1,5 @@
+/target
+*.log
+.env
+*token*
+!src/token.rs
