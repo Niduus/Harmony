@@ -5,7 +5,7 @@
 //! private key, once. The private key goes into the repo's GitHub Actions secret
 //! HARMONY_SIGNING_KEY and nowhere else: anyone with it can sign updates.
 
-#[path = "../signing.rs"]
+#[path = "../updates/signing.rs"]
 mod signing;
 
 fn main() {

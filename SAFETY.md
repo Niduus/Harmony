@@ -4,8 +4,8 @@ The goal is for Harmony to behave like one careful person using an
 ordinary client. Nothing here hides that it is a third-party client: the
 protection comes from good behaviour, not disguise.
 
-**No change to these rules, or to `safety.rs`, `rest.rs`, `gateway.rs`,
-`token.rs`, `core.rs`, `login_window.rs`, `updates.rs` or `ui/js/features.js`, goes in without the project owner's explicit approval.**
+**No change to these rules, or to `safety.rs`, `discord/`, `auth/`, `core.rs`,
+`updates/` or `ui/js/features.js`, goes in without the project owner's explicit approval.**
 
 ## Token
 

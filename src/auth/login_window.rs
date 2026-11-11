@@ -17,7 +17,7 @@
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
-use crate::token::Token;
+use crate::auth::token::Token;
 
 const LABEL: &str = "discord-login";
 const LOGIN_URL: &str = "https://discord.com/login";

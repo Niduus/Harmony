@@ -16,14 +16,14 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::signing;
+pub mod signing;
 
 pub const REPO: &str = "Niduus/Harmony";
 pub const TAG_PREFIX: &str = "harmony-v";
 pub const SETUP_NAME: &str = "Harmony-Setup.exe";
 pub const LOCAL_VERSION: &str = "local";
 pub const SOURCE_VERSION: &str = "source";
-const UPDATE_KEY: &str = include_str!("../update-key.pub");
+const UPDATE_KEY: &str = include_str!("../../update-key.pub");
 
 /// The release tag this exe was built as. CI sets HARMONY_TAG; a hand build is "local",
 /// a debug build "source".

@@ -74,25 +74,28 @@ From then on every build is a signed `harmony-v<version>` release that installed
 
 ## Layout
 
+Each part of Harmony has one job, and only `core.rs` connects them.
+
 | Path | What it does |
 | --- | --- |
-| `ui/` | The window: HTML, CSS and ES modules (layout adapted from the hbv launcher UI) |
-| `ui/js/features.js` | Which actions the UI offers; everything not in Phase 1 is off |
-| `src/main.rs` | Window, commands the UI can call, single instance |
-| `src/core.rs` | Answers the UI's requests from the gateway and REST, through the safety limits |
-| `src/store.rs` | Servers, channels, DMs and history Harmony knows about |
-| `src/describe.rs` | Turns Discord messages into what the UI draws |
-| `src/gateway.rs` | Websocket: sign-in, heartbeat, resume, reconnect, events |
-| `src/rest.rs` | HTTP API: rate limits, retries, circuit breaker |
+| `ui/` | The window: HTML, CSS and ES modules (layout adapted from the hbv launcher UI). It never sees the token |
+| `ui/js/features.js` | Which actions the UI offers; everything not built yet is off |
+| `src/main.rs` | Window, the commands the UI can call, single instance |
+| `src/core.rs` | Answers the UI's requests from Discord, through the safety limits |
+| `src/state.rs` | Application state: servers, channels, DMs and history Harmony knows about |
 | `src/safety.rs` | Every account-safety limit, in one place |
-| `src/token.rs` | Token type that can't be printed; keychain load, save, delete |
-| `src/login_window.rs` | "Sign in with Discord": Discord's login page in a private, sealed window |
-| `src/updates.rs`, `src/signing.rs` | Update check, download, signature check, install |
+| `src/auth/` | `token.rs` (token type that can't be printed; keychain) and `login_window.rs` (Sign in with Discord) |
+| `src/discord/` | `gateway.rs` (websocket), `rest.rs` (HTTP API, rate limits, breaker), `describe.rs` (messages for the UI) |
+| `src/perf/` | Potato / Balanced / Enthusiast profiles, and `memory.rs`, the memory meter |
+| `src/settings.rs` | Settings saved on this PC (never the token) |
+| `src/updates/` | Update check, download, signature check (`signing.rs`), install |
 | `src/bin/` | `harmony-keygen` and `harmony-sign`, the release-signing tools |
 | `installer.iss`, `build-exe.ps1` | The Windows installer and build |
+| `deny.toml` | Dependency rules checked in CI: no known advisories, no abandoned or yanked crates |
 
 ## Tests
 
 ```sh
 cargo test
+cargo deny check advisories bans sources   # needs: cargo install cargo-deny
 ```

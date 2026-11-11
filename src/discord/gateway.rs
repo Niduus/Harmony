@@ -18,7 +18,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use crate::safety::{self, Window};
-use crate::token::Token;
+use crate::auth::token::Token;
 
 const GATEWAY: &str = "wss://gateway.discord.gg";
 const QUERY: &str = "/?v=10&encoding=json";
