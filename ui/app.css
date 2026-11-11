@@ -629,3 +629,5 @@ iframe.embed-player { display: block; border: 0; border-radius: 8px; background:
 .login-warn { background: rgba(247,211,138,.08); border-left: 3px solid #f7d38a; padding: 8px 10px; border-radius: 4px; }
 .login-card .label-sm { margin: 6px 0 0; }
 .btn.wide { width: 100%; justify-content: center; }
+.login-or { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
+.login-or::before, .login-or::after { content: ""; flex: 1; height: 1px; background: var(--line-strong); }

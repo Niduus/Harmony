@@ -5,7 +5,7 @@ ordinary client. Nothing here hides that it is a third-party client: the
 protection comes from good behaviour, not disguise.
 
 **No change to these rules, or to `safety.rs`, `rest.rs`, `gateway.rs`,
-`token.rs`, `core.rs`, `updates.rs` or `ui/js/features.js`, goes in without the project owner's explicit approval.**
+`token.rs`, `core.rs`, `login_window.rs`, `updates.rs` or `ui/js/features.js`, goes in without the project owner's explicit approval.**
 
 ## Token
 
@@ -17,6 +17,15 @@ protection comes from good behaviour, not disguise.
   call goes through the core.
 - The window runs under a strict Content Security Policy: no inline scripts, and
   remote images only from Discord's CDN.
+- "Sign in with Discord" shows discord.com's real login page in a private
+  (incognito) window. Harmony never fills in, clicks or reads the form, and never
+  sees the password. The window may only show discord.com, discordapp.com and
+  hCaptcha pages; other links open in the browser and popups are refused. It has
+  no access to Harmony's commands. A script reads only the session token Discord
+  saves after you sign in, and hands it over through an address Harmony cancels,
+  so it never leaves the PC. Harmony never solves or skips captchas.
+- Every command that touches the account checks it came from Harmony's own
+  window.
 - A token Discord rejects (HTTP 401 or gateway close 4004) is never retried.
 
 ## No automation

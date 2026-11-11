@@ -31,11 +31,15 @@ sign in to GitHub with Git for Windows (Harmony asks `git credential fill`).
 
 ## Signing in
 
-Sign in to Discord in a browser with your test account, open DevTools, and copy the
-`Authorization` header from any request to `discord.com/api`. Paste it into Harmony's sign-in
-screen. It goes straight to the Windows Credential Manager and nowhere else; the window never
-keeps it. Sign out (Settings > Account) deletes it. Changing the account's password invalidates
-it.
+**Sign in with Discord** opens Discord's own sign-in page in a separate private window. You type
+your email, password, captcha and 2FA code there, exactly as in a browser; Harmony never sees
+your password. Once Discord signs you in, Harmony takes the session token, closes the window
+(which keeps nothing), and stores the token in the Windows Credential Manager.
+
+Or paste a token: sign in to Discord in a browser with your test account, open DevTools (F12) >
+Network, filter for `api`, click any request and copy its `authorization` request header.
+
+Sign out (Settings > Account) deletes the token. Changing the account's password invalidates it.
 
 ## Build from source
 
@@ -76,6 +80,7 @@ Until both exist, the workflow refuses to publish anything.
 | `src/rest.rs` | HTTP API: rate limits, retries, circuit breaker |
 | `src/safety.rs` | Every account-safety limit, in one place |
 | `src/token.rs` | Token type that can't be printed; keychain load, save, delete |
+| `src/login_window.rs` | "Sign in with Discord": Discord's login page in a private, sealed window |
 | `src/updates.rs`, `src/signing.rs` | Update check, download, signature check, install |
 | `src/bin/` | `harmony-keygen` and `harmony-sign`, the release-signing tools |
 | `installer.iss`, `build-exe.ps1` | The Windows installer and build |

@@ -179,11 +179,14 @@ function drawLogin() {
     <h1>Welcome to Harmony</h1>
     <p class="lead">A fast, native Discord client.</p>
     <div class="note warn login-warn">Third-party clients are against Discord's Terms of Service, and accounts can be banned for using one. Use a test account you can afford to lose.</div>
+    <div class="login-error note err" hidden></div>
+    <button class="btn primary big wide" data-do="login-discord">Sign in with Discord</button>
+    <p class="note">Opens Discord's own sign-in page in a private window. You type your email, password and any 2FA code there, not into Harmony. Harmony keeps only the session it gets back, in your system's secure keychain.</p>
+    <div class="login-or"><span>or paste a token</span></div>
     <label class="label-sm" for="login-token">Account token</label>
     <input id="login-token" class="field" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your token">
-    <p class="note">It's stored only in your system's secure keychain, and only Harmony's core ever sees it. Never paste it anywhere else.</p>
-    <div class="login-error note err" hidden></div>
-    <button class="btn primary big wide" data-do="login">Sign in</button>
+    <p class="note">Only Harmony's core ever sees it. Never paste it anywhere else.</p>
+    <button class="btn big wide" data-do="login">Sign in with token</button>
   </div>`;
   const field = loginEl.querySelector('#login-token');
   field.addEventListener('keydown', event => {
@@ -210,6 +213,22 @@ async function signIn() {
   loginError('');
   S.signedIn = true;
   S.status = { state: 'connecting', text: 'Connecting…' };
+  draw();
+}
+
+async function signInWithDiscord() {
+  loginError('');
+  const result = await invoke('login_discord').catch(error => ({ ok: false, message: String(error) }));
+  if (!result.ok) loginError(result.message);
+}
+
+/** The Discord sign-in window finished (login_window.rs). */
+function onSignedIn(result) {
+  if (!result.ok) return loginError(result.message);
+  loginError('');
+  S.signedIn = true;
+  S.status = { state: 'connecting', text: 'Connecting…' };
+  if (result.message && result.message.includes('(')) toast(result.message, 'warn', 9000);
   draw();
 }
 
@@ -562,6 +581,7 @@ function guildMenu(anchor, id = S.view.guildId) {
 
 const ACTIONS = {
   login: () => signIn(),
+  'login-discord': () => signInWithDiscord(),
   logout: () => signOut(),
   copy: el => copy(el.dataset.text),
   setting: el => saveSettings({ [el.dataset.key]: !S.settings[el.dataset.key] }),
@@ -801,8 +821,9 @@ async function start() {
   await listen('release', onRelease);
   await listen('auth-failed', () => {
     resetSession();
-    requestAnimationFrame(() => loginError('Discord rejected your token (it changes when you change your password). Paste a new one to sign in.'));
+    requestAnimationFrame(() => loginError('Discord rejected your token (it changes when you change your password). Sign in again.'));
   });
+  await listen('signed-in', onSignedIn);
   await listen('app-error', event => toast(event.text, 'err', 9000));
 
   draw();

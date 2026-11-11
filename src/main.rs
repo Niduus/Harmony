@@ -11,6 +11,7 @@
 mod core;
 mod describe;
 mod gateway;
+mod login_window;
 mod rest;
 mod safety;
 mod signing;
@@ -25,7 +26,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Webview};
 
 use crate::core::Core;
 use crate::token::Token;
@@ -88,12 +89,30 @@ fn show_window(handle: &AppHandle, app: &App) {
     }
 }
 
+/// Only Harmony's own window may call the commands that touch the account. Tauri already
+/// refuses commands from remote pages (like the Discord sign-in window); this is a second lock.
+fn from_main(webview: &Webview) -> Result<(), Value> {
+    if webview.label() == "main" {
+        Ok(())
+    } else {
+        Err(json!({ "ok": false, "message": "Not allowed from this window." }))
+    }
+}
+
 /// Sign in with a pasted token: check its shape, keep it in the OS keychain, connect.
 #[tauri::command]
-fn login(app: Shared<'_>, token: String) -> Value {
+fn login(app: Shared<'_>, webview: Webview, token: String) -> Value {
+    if let Err(denied) = from_main(&webview) {
+        return denied;
+    }
     let Some(token) = Token::parse(&token) else {
         return json!({ "ok": false, "message": "That doesn't look like an account token." });
     };
+    sign_in(&app, token)
+}
+
+/// Keep the token in the keychain and connect. Used by both ways of signing in.
+fn sign_in(app: &App, token: Token) -> Value {
     let mut note = String::new();
     if let Err(e) = token::save(&token) {
         note = format!(" ({e}. Harmony will use the token for this session only.)");
@@ -104,9 +123,29 @@ fn login(app: Shared<'_>, token: String) -> Value {
     }
 }
 
+/// Sign in on Discord's own login page, in a separate private window. See login_window.rs.
+#[tauri::command]
+fn login_discord(app: Shared<'_>, webview: Webview, handle: AppHandle) -> Value {
+    if let Err(denied) = from_main(&webview) {
+        return denied;
+    }
+    let app = app.inner().clone();
+    let opened = login_window::open(&handle, move |handle, token| {
+        let result = sign_in(&app, token);
+        let _ = handle.emit_to("main", "signed-in", &result);
+    });
+    match opened {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "message": e }),
+    }
+}
+
 /// Sign out: disconnect and delete the token from the keychain.
 #[tauri::command]
-fn logout(app: Shared<'_>) -> Value {
+fn logout(app: Shared<'_>, webview: Webview) -> Value {
+    if let Err(denied) = from_main(&webview) {
+        return denied;
+    }
     app.core.stop();
     match token::delete() {
         Ok(()) => json!({ "ok": true, "message": "Signed out. Your token was removed from this PC." }),
@@ -115,7 +154,10 @@ fn logout(app: Shared<'_>) -> Value {
 }
 
 #[tauri::command]
-async fn api(app: Shared<'_>, method: String, route: String, query: Option<Value>, body: Option<Value>) -> Result<Value, String> {
+async fn api(app: Shared<'_>, webview: Webview, method: String, route: String, query: Option<Value>, body: Option<Value>) -> Result<Value, String> {
+    if let Err(denied) = from_main(&webview) {
+        return Ok(denied);
+    }
     let core = app.core.clone();
     Ok(core.api(&method, &route, &query.unwrap_or(Value::Null), &body.unwrap_or(Value::Null)).await)
 }
@@ -213,7 +255,7 @@ fn main() {
     let updated = std::env::args().any(|a| a == "--updated");
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![init, window_ready, login, logout, api, open_url, settings_set, release_check, release_install])
+        .invoke_handler(tauri::generate_handler![init, window_ready, login, login_discord, logout, api, open_url, settings_set, release_check, release_install])
         .setup(move |tauri_app| {
             let handle = tauri_app.handle().clone();
             let settings_path = handle.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".")).join("settings.json");
