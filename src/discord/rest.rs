@@ -13,9 +13,9 @@ use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::store::Id;
+use crate::state::Id;
 use crate::safety::{self, Window};
-use crate::token::Token;
+use crate::auth::token::Token;
 
 const API: &str = "https://discord.com/api/v10";
 const MAX_ATTEMPTS: u32 = 3;

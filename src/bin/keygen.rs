@@ -4,7 +4,7 @@
 //! once. Put the private key in the repo's GitHub Actions secrets as HARMONY_SIGNING_KEY and
 //! keep no other copy you don't need. Anyone with it can sign updates.
 
-#[path = "../signing.rs"]
+#[path = "../updates/signing.rs"]
 mod signing;
 
 fn main() {
