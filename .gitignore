@@ -1,0 +1,7 @@
+/target
+*.log
+.env
+*token*
+!src/token.rs
+/build
+/gen/schemas
